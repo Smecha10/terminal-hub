@@ -32,18 +32,28 @@ browser ──HTTP──▶ server.py (:8073)   tabs, quick-keys, scroll, sessio
 
 ## Install
 
+First install the dependencies (`python3`, `tmux`, and [`ttyd`](https://github.com/tsl0922/ttyd)). On Debian/Raspberry Pi OS `sudo apt install tmux`; ttyd is usually built from source or grabbed from a release.
+
+### Quick install (systemd)
+
 ```sh
 git clone https://github.com/Smecha10/terminal-hub.git
 cd terminal-hub
 
-# 1. install deps (Debian/Raspberry Pi OS shown)
-sudo apt install tmux
-#   ttyd: build from source or grab a release — https://github.com/tsl0922/ttyd
+# bind to a trusted interface — a Tailscale/VPN IP, or omit for localhost only
+HUB_BIND_HOST=100.x.y.z ./install.sh
+```
 
-# 2. (optional) configure extra session targets
-cp targets.example.json targets.json && $EDITOR targets.json
+`install.sh` renders both systemd units from the templates (filling in your
+user, repo path, ttyd binary, host, and ports), seeds `targets.json`, then
+enables and starts the services. Run `./install.sh --dry-run` first to preview
+the units without touching anything. Then open `http://<host>:8073/` in a
+mobile browser and "Add to Home Screen".
 
-# 3. install the two services
+### Manual install
+
+```sh
+cp targets.example.json targets.json && $EDITOR targets.json   # optional: ssh targets
 sudo cp systemd/terminal-hub-ttyd.service.example /etc/systemd/system/terminal-hub-ttyd.service
 sudo cp systemd/terminal-hub.service.example      /etc/systemd/system/terminal-hub.service
 sudo $EDITOR /etc/systemd/system/terminal-hub-ttyd.service   # set YOUR_USER, paths, --interface
@@ -51,8 +61,6 @@ sudo $EDITOR /etc/systemd/system/terminal-hub.service        # set YOUR_USER, pa
 sudo systemctl daemon-reload
 sudo systemctl enable --now terminal-hub-ttyd.service terminal-hub.service
 ```
-
-Then open `http://<host>:8073/` in a mobile browser and "Add to Home Screen".
 
 To run it by hand instead of via systemd:
 
