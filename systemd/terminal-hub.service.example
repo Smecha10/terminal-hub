@@ -1,0 +1,20 @@
+[Unit]
+Description=Terminal Hub UI (tabbed tmux session manager)
+After=network-online.target terminal-hub-ttyd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+WorkingDirectory=/path/to/terminal-hub
+# Interface to serve the UI on. There is NO authentication, so bind to a
+# trusted interface only: a Tailscale/VPN IP, or 127.0.0.1 behind a proxy.
+Environment=HUB_BIND_HOST=127.0.0.1
+Environment=HUB_BIND_PORT=8073
+Environment=HUB_TTYD_PORT=8071
+ExecStart=/usr/bin/python3 /path/to/terminal-hub/server.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,17 @@
+[Unit]
+Description=ttyd web terminal (tmux-backed) for Terminal Hub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+# --interface must match HUB_BIND_HOST and --port must match HUB_TTYD_PORT
+# from terminal-hub.service. ttyd is --writable and unauthenticated: keep it
+# on a trusted interface only.
+ExecStart=/usr/bin/ttyd --port 8071 --interface 127.0.0.1 --writable --url-arg --ping-interval 20 /path/to/terminal-hub/bin/ttyd-tmux-session
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

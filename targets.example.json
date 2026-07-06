@@ -1,0 +1,5 @@
+{
+  "_comment": "Copy to targets.json. Maps a picker label to the argv run in a new session (no shell parsing). The built-in 'local' shell is always available and does not need to be listed here. Remove the _comment key.",
+  "gpu-box": ["ssh", "gpu-box"],
+  "vps": ["ssh", "user@vps.example.com"]
+}

@@ -1,0 +1,7 @@
+#!/bin/bash
+# Attach to (or create) a named tmux session. Used by ttyd --url-arg.
+name="${1:-main}"
+# allow only safe chars in session names
+name="$(printf '%s' "$name" | tr -cd 'A-Za-z0-9_.-')"
+[ -z "$name" ] && name=main
+exec /usr/bin/tmux new-session -A -s "$name"

@@ -1,0 +1,781 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="theme-color" content="#1a1b26">
+<title>Terminal Hub</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TermHub">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    overscroll-behavior: none;
+    background: #16161e;
+    color: #c0caf5;
+    font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  #app { display: flex; flex-direction: column; height: 100dvh; }
+
+  #tabbar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px calc(8px + env(safe-area-inset-right)) 6px calc(8px + env(safe-area-inset-left));
+    padding-top: calc(6px + env(safe-area-inset-top));
+    background: #1a1b26;
+    border-bottom: 1px solid #2a2b3d;
+    flex: 0 0 auto;
+  }
+  #tabs {
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    flex: 1 1 auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  #tabs::-webkit-scrollbar { display: none; }
+  .tab {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    background: #24283b;
+    color: #a9b1d6;
+    font-size: 14px;
+    border: 1px solid transparent;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .tab.active { background: #2f334d; color: #fff; border-color: #7aa2f7; }
+  .tab .dot { width: 7px; height: 7px; border-radius: 50%; background: #565f89; }
+  .tab.live .dot { background: #9ece6a; }
+  .tab.unread .dot { background: #e0af68; animation: pulse 1.4s ease-in-out infinite; }
+  .tab.dragging { opacity: .55; border-color: #e0af68; }
+  @keyframes pulse {
+    0%, 100% { transform: scale(1); opacity: 1; }
+    50% { transform: scale(1.5); opacity: .6; }
+  }
+  .iconbtn {
+    flex: 0 0 auto;
+    width: 38px; height: 38px;
+    border-radius: 10px;
+    border: none;
+    background: #24283b;
+    color: #7aa2f7;
+    font-size: 22px;
+    line-height: 1;
+    cursor: pointer;
+  }
+  .iconbtn:active { background: #2f334d; }
+
+  #terms { flex: 1 1 auto; position: relative; background: #000; }
+  #terms iframe {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+    display: none;
+    background: #000;
+  }
+  #terms iframe.show { display: block; }
+
+  .swipe-zone {
+    position: absolute;
+    top: 0; bottom: 0;
+    width: 22px;
+    z-index: 5;
+    touch-action: pan-y;
+  }
+
+  /* Covers the (cross-origin) terminal iframe so we can capture swipes and
+     translate them into tmux copy-mode scrolling. Off by default so the
+     terminal stays tappable/typable; the ⇅ key toggles it on. */
+  #scroll-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 6;
+    display: none;
+    touch-action: none;
+    /* A non-transparent background is required: a fully transparent overlay
+       over a cross-origin iframe does not reliably receive touch events on
+       iOS/mobile. The dim tint also signals that scroll mode is active. */
+    background: rgba(0, 0, 0, .18);
+  }
+  #scroll-overlay.on { display: block; }
+  #scroll-hint {
+    position: absolute;
+    top: 8px; left: 50%;
+    transform: translateX(-50%);
+    padding: 4px 12px;
+    border-radius: 999px;
+    background: rgba(122,162,247,.9);
+    color: #16161e;
+    font-size: 12px;
+    font-weight: 600;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .2s;
+  }
+  #scroll-overlay.on #scroll-hint { opacity: 1; }
+
+  #keybar, #ctrlrow {
+    display: flex;
+    gap: 6px;
+    padding: 6px calc(8px + env(safe-area-inset-right)) calc(6px + env(safe-area-inset-bottom)) calc(8px + env(safe-area-inset-left));
+    background: #1a1b26;
+    border-top: 1px solid #2a2b3d;
+    overflow-x: auto;
+    flex: 0 0 auto;
+    scrollbar-width: none;
+  }
+  #keybar::-webkit-scrollbar, #ctrlrow::-webkit-scrollbar { display: none; }
+  #ctrlrow { display: none; padding-bottom: 6px; border-top: 1px solid #3b4261; }
+  #ctrlrow.open { display: flex; }
+  .key {
+    flex: 0 0 auto;
+    min-width: 44px;
+    min-height: 40px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    border: none;
+    background: #24283b;
+    color: #c0caf5;
+    font-size: 14px;
+    font-family: ui-monospace, Menlo, monospace;
+    text-align: center;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    cursor: pointer;
+  }
+  .key:active { background: #2f334d; }
+  .key.on { background: #7aa2f7; color: #16161e; font-weight: 600; }
+
+  #empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    color: #565f89;
+  }
+  #empty button {
+    padding: 14px 28px;
+    font-size: 16px;
+    border-radius: 12px;
+    border: 1px solid #7aa2f7;
+    background: #1a1b26;
+    color: #7aa2f7;
+    cursor: pointer;
+  }
+
+  .sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,.55);
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+    z-index: 50;
+  }
+  .sheet-backdrop.open { display: flex; }
+  .sheet {
+    width: 100%;
+    max-width: 480px;
+    background: #1f2335;
+    border-radius: 16px 16px 0 0;
+    padding: 18px 16px calc(18px + env(safe-area-inset-bottom));
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .sheet h3 { font-size: 15px; color: #7aa2f7; font-weight: 600; }
+  .sheet input {
+    padding: 12px;
+    font-size: 16px;
+    border-radius: 10px;
+    border: 1px solid #3b4261;
+    background: #16161e;
+    color: #c0caf5;
+    outline: none;
+  }
+  .sheet input:focus { border-color: #7aa2f7; }
+  .seg { display: flex; gap: 8px; }
+  .seg-btn {
+    flex: 1 1 0;
+    padding: 12px 10px;
+    font-size: 14px;
+    border-radius: 10px;
+    border: 1px solid #3b4261;
+    background: #16161e;
+    color: #a9b1d6;
+    cursor: pointer;
+    text-align: center;
+    line-height: 1.25;
+  }
+  .seg-btn small { display: block; font-size: 11px; color: #565f89; }
+  .seg-btn.on { border-color: #7aa2f7; background: #2f334d; color: #fff; }
+  .seg-btn.on small { color: #9aa5ce; }
+  .sheet button {
+    padding: 13px;
+    font-size: 15px;
+    border-radius: 10px;
+    border: none;
+    background: #24283b;
+    color: #c0caf5;
+    cursor: pointer;
+    text-align: left;
+    padding-left: 16px;
+  }
+  .sheet button.primary { background: #7aa2f7; color: #16161e; font-weight: 600; text-align: center; }
+  .sheet button.danger { color: #f7768e; }
+  .sheet button.cancel { text-align: center; color: #565f89; background: transparent; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="tabbar">
+    <div id="tabs"></div>
+    <button class="iconbtn" id="btn-new" title="New terminal">＋</button>
+    <button class="iconbtn" id="btn-refresh" title="Refresh">⟳</button>
+  </div>
+  <div id="terms">
+    <div class="swipe-zone" id="swipe-l" style="left:0"></div>
+    <div class="swipe-zone" id="swipe-r" style="right:0"></div>
+    <div id="scroll-overlay"><div id="scroll-hint">scroll — swipe up/down · tap ⇅ to exit</div></div>
+    <div id="empty" style="display:none">
+      <div>No terminals yet</div>
+      <button id="btn-empty-new">＋ &nbsp;New Terminal</button>
+    </div>
+  </div>
+  <div id="ctrlrow"></div>
+  <div id="keybar"></div>
+</div>
+
+<div class="sheet-backdrop" id="sheet-new">
+  <div class="sheet">
+    <h3>New terminal</h3>
+    <div class="seg" id="new-target"></div>
+    <input id="new-name" placeholder="name (e.g. logs, build, ssh)" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button class="primary" id="new-create">Create</button>
+    <button class="cancel" data-close>Cancel</button>
+  </div>
+</div>
+
+<div class="sheet-backdrop" id="sheet-actions">
+  <div class="sheet">
+    <h3 id="actions-title"></h3>
+    <button id="act-rename">Rename</button>
+    <button class="danger" id="act-kill">Kill session</button>
+    <button class="cancel" data-close>Cancel</button>
+  </div>
+</div>
+
+<div class="sheet-backdrop" id="sheet-rename">
+  <div class="sheet">
+    <h3>Rename terminal</h3>
+    <input id="rename-name" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <button class="primary" id="rename-save">Rename</button>
+    <button class="cancel" data-close>Cancel</button>
+  </div>
+</div>
+
+<script>
+const TTYD_PORT = "__TTYD_PORT__";
+let fontSize = parseInt(localStorage.getItem("hub-font") || "14", 10) || 14;
+const ttydUrl = name => `${location.protocol}//${location.hostname}:${TTYD_PORT}/?arg=${encodeURIComponent(name)}&fontSize=${fontSize}`;
+
+let seen = {};
+try { seen = JSON.parse(localStorage.getItem("hub-seen") || "{}"); } catch (e) {}
+const state = { sessions: [], active: localStorage.getItem("hub-active") || null, menuTarget: null, seen };
+const frames = new Map();
+const $ = id => document.getElementById(id);
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+async function load() {
+  try {
+    const { sessions } = await api("/api/sessions");
+    state.sessions = sessions;
+    sortSessions();
+  } catch (e) { /* keep last known state */ }
+  render();
+}
+
+function sortSessions() {
+  let ord = [];
+  try { ord = JSON.parse(localStorage.getItem("hub-order") || "[]"); } catch (e) {}
+  state.sessions.sort((a, b) => {
+    const ia = ord.indexOf(a.name), ib = ord.indexOf(b.name);
+    const ka = ia === -1 ? 1e15 + a.created : ia;
+    const kb = ib === -1 ? 1e15 + b.created : ib;
+    return ka - kb;
+  });
+}
+
+function commitOrder() {
+  const names = [...$("tabs").children].map(c => c.dataset.name);
+  localStorage.setItem("hub-order", JSON.stringify(names));
+  sortSessions();
+  render();
+}
+
+function persistSeen() {
+  const live = new Set(state.sessions.map(s => s.name));
+  for (const k of Object.keys(state.seen)) if (!live.has(k)) delete state.seen[k];
+  localStorage.setItem("hub-seen", JSON.stringify(state.seen));
+}
+
+function render() {
+  const names = state.sessions.map(s => s.name);
+  if (!names.includes(state.active)) state.active = names[0] || null;
+
+  const tabs = $("tabs");
+  tabs.innerHTML = "";
+  for (const s of state.sessions) {
+    if (!(s.name in state.seen) || s.name === state.active) state.seen[s.name] = s.activity;
+    const unread = s.name !== state.active && s.activity > (state.seen[s.name] || 0);
+    const el = document.createElement("div");
+    el.className = "tab" + (s.name === state.active ? " active" : "")
+      + (s.attached ? " live" : "") + (unread ? " unread" : "");
+    el.dataset.name = s.name;
+    el.innerHTML = `<span class="dot"></span><span></span>`;
+    el.querySelector("span:last-child").textContent = s.name;
+    wireTab(el, s);
+    tabs.appendChild(el);
+  }
+  persistSeen();
+
+  // drop iframes for dead sessions
+  for (const [name, f] of frames) {
+    if (!names.includes(name)) { f.remove(); frames.delete(name); }
+  }
+  // show active frame
+  for (const [name, f] of frames) f.classList.toggle("show", name === state.active);
+  if (state.active && !frames.has(state.active)) mountFrame(state.active);
+
+  $("empty").style.display = names.length ? "none" : "flex";
+}
+
+let dragName = null;
+
+function wireTab(el, s) {
+  el.onclick = () => {
+    if (el.dataset.suppress) { delete el.dataset.suppress; return; }
+    if (state.active === s.name) openActions(s.name);
+    else setActive(s.name);
+  };
+  el.addEventListener("contextmenu", ev => { ev.preventDefault(); openActions(s.name); });
+
+  // touch: hold 350ms to lift; drag to reorder; release without moving = actions menu
+  let timer = null, drag = false, movedTab = false, sx = 0, sy = 0;
+  el.addEventListener("touchstart", ev => {
+    sx = ev.touches[0].clientX; sy = ev.touches[0].clientY;
+    drag = false; movedTab = false;
+    timer = setTimeout(() => {
+      drag = true;
+      el.classList.add("dragging");
+      if (navigator.vibrate) navigator.vibrate(10);
+    }, 350);
+  }, {passive: true});
+  el.addEventListener("touchmove", ev => {
+    const x = ev.touches[0].clientX, y = ev.touches[0].clientY;
+    if (!drag) {
+      if (Math.abs(x - sx) > 10 || Math.abs(y - sy) > 10) clearTimeout(timer);
+      return;
+    }
+    ev.preventDefault();
+    for (const c of [...el.parentNode.children]) {
+      if (c === el) continue;
+      const r = c.getBoundingClientRect();
+      if (x > r.left && x < r.right) {
+        movedTab = true;
+        if (x < r.left + r.width / 2) el.parentNode.insertBefore(el, c);
+        else el.parentNode.insertBefore(el, c.nextSibling);
+        break;
+      }
+    }
+  }, {passive: false});
+  el.addEventListener("touchend", () => {
+    clearTimeout(timer);
+    if (!drag) return;
+    el.classList.remove("dragging");
+    el.dataset.suppress = "1";
+    if (movedTab) commitOrder();
+    else openActions(s.name);
+    drag = false;
+  });
+  el.addEventListener("touchcancel", () => {
+    clearTimeout(timer);
+    drag = false;
+    el.classList.remove("dragging");
+  });
+
+  // desktop: native drag & drop
+  el.draggable = true;
+  el.addEventListener("dragstart", ev => {
+    dragName = s.name;
+    ev.dataTransfer.effectAllowed = "move";
+  });
+  el.addEventListener("dragover", ev => {
+    ev.preventDefault();
+    if (!dragName || dragName === s.name) return;
+    const src = [...el.parentNode.children].find(c => c.dataset.name === dragName);
+    if (!src) return;
+    const r = el.getBoundingClientRect();
+    if (ev.clientX < r.left + r.width / 2) el.parentNode.insertBefore(src, el);
+    else el.parentNode.insertBefore(src, el.nextSibling);
+  });
+  el.addEventListener("dragend", () => { dragName = null; commitOrder(); });
+}
+
+// Phones can't afford a live xterm per session — keep only the most recent
+// few mounted; tmux preserves the rest, so remounting is a cheap reattach.
+const MAX_FRAMES = 3;
+const frameLRU = [];
+
+function touchLRU(name) {
+  const i = frameLRU.indexOf(name);
+  if (i !== -1) frameLRU.splice(i, 1);
+  frameLRU.push(name);
+  while (frames.size > MAX_FRAMES) {
+    const victim = frameLRU.find(n => n !== state.active && frames.has(n));
+    if (!victim) break;
+    frames.get(victim).remove();
+    frames.delete(victim);
+    frameLRU.splice(frameLRU.indexOf(victim), 1);
+  }
+}
+
+function mountFrame(name) {
+  const f = document.createElement("iframe");
+  f.src = ttydUrl(name);
+  f.className = "show";
+  $("terms").appendChild(f);
+  frames.set(name, f);
+  touchLRU(name);
+}
+
+function setActive(name) {
+  state.active = name;
+  localStorage.setItem("hub-active", name || "");
+  if (name) touchLRU(name);
+  render();
+}
+
+function setFont(d) {
+  fontSize = Math.min(24, Math.max(10, fontSize + d));
+  localStorage.setItem("hub-font", String(fontSize));
+  for (const [n, f] of frames) f.src = ttydUrl(n);
+}
+
+// --- sheets ---
+function open(id) { $(id).classList.add("open"); }
+function close(id) { $(id).classList.remove("open"); }
+document.querySelectorAll("[data-close]").forEach(b =>
+  b.onclick = () => b.closest(".sheet-backdrop").classList.remove("open"));
+document.querySelectorAll(".sheet-backdrop").forEach(bd =>
+  bd.addEventListener("click", e => { if (e.target === bd) bd.classList.remove("open"); }));
+
+let newTarget = "local";
+let targets = [{ id: "local", hint: "shell" }];
+api("/api/targets").then(r => { if (r.targets && r.targets.length) targets = r.targets; }).catch(() => {});
+
+function buildTargets() {
+  const box = $("new-target");
+  box.innerHTML = "";
+  // a single "local" target needs no picker
+  box.style.display = targets.length > 1 ? "flex" : "none";
+  for (const t of targets) {
+    const b = document.createElement("button");
+    b.className = "seg-btn" + (t.id === newTarget ? " on" : "");
+    b.dataset.target = t.id;
+    b.innerHTML = `${t.id}<small></small>`;
+    b.querySelector("small").textContent = t.hint || "";
+    b.onclick = () => {
+      newTarget = t.id;
+      [...box.children].forEach(x => x.classList.toggle("on", x === b));
+    };
+    box.appendChild(b);
+  }
+}
+
+function openNew() {
+  newTarget = "local";
+  buildTargets();
+  $("new-name").value = "";
+  open("sheet-new");
+  setTimeout(() => $("new-name").focus(), 50);
+}
+$("btn-new").onclick = openNew;
+$("btn-empty-new").onclick = openNew;
+$("btn-refresh").onclick = load;
+
+$("new-create").onclick = async () => {
+  let name = $("new-name").value.trim().replace(/\s+/g, "-");
+  if (!name) name = newTarget === "local" ? "term-" + (state.sessions.length + 1) : newTarget;
+  try {
+    await api("/api/sessions", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ name, target: newTarget }) });
+    close("sheet-new");
+    await load();
+    setActive(name);
+  } catch (e) { alert(e.message); }
+};
+$("new-name").addEventListener("keydown", e => { if (e.key === "Enter") $("new-create").click(); });
+
+function openActions(name) {
+  state.menuTarget = name;
+  $("actions-title").textContent = name;
+  open("sheet-actions");
+}
+$("act-rename").onclick = () => {
+  close("sheet-actions");
+  $("rename-name").value = state.menuTarget;
+  open("sheet-rename");
+  setTimeout(() => $("rename-name").focus(), 50);
+};
+$("rename-save").onclick = async () => {
+  const nw = $("rename-name").value.trim().replace(/\s+/g, "-");
+  if (!nw || nw === state.menuTarget) return close("sheet-rename");
+  try {
+    await api("/api/rename", { method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ old: state.menuTarget, new: nw }) });
+    const f = frames.get(state.menuTarget);
+    if (f) { frames.delete(state.menuTarget); frames.set(nw, f); }
+    if (state.active === state.menuTarget) state.active = nw;
+    close("sheet-rename");
+    await load();
+  } catch (e) { alert(e.message); }
+};
+$("rename-name").addEventListener("keydown", e => { if (e.key === "Enter") $("rename-save").click(); });
+
+$("act-kill").onclick = async () => {
+  if (!confirm(`Kill "${state.menuTarget}"? Anything running in it stops.`)) return;
+  try {
+    await api("/api/sessions/" + encodeURIComponent(state.menuTarget), { method: "DELETE" });
+    close("sheet-actions");
+    await load();
+  } catch (e) { alert(e.message); }
+};
+
+// --- quick-keys bar ---
+// Keys go through the server (tmux send-keys) because the ttyd iframe is
+// cross-origin (different port) and can't be scripted from this page.
+const KEYS = [
+  ["esc",  {key: "Escape"}],
+  ["tab",  {key: "Tab"}],
+  ["ctrl", "ctrl"],
+  ["⇅",    "scroll"],
+  ["↑", {key: "Up"}, true],
+  ["↓", {key: "Down"}, true],
+  ["←", {key: "Left"}, true],
+  ["→", {key: "Right"}, true],
+  ["|", {literal: "|"}],
+  ["-", {literal: "-"}],
+  ["~", {literal: "~"}],
+  ["/", {literal: "/"}],
+  ["pgup", {scroll: "up", lines: 8}, true],
+  ["pgdn", {scroll: "down", lines: 8}, true],
+  ["home", {key: "Home"}],
+  ["end",  {key: "End"}],
+  ["A−", "font-"],
+  ["A＋", "font+"],
+];
+const CTRL_KEYS = "cdzabeklruwx[".split("");
+
+async function sendKey(payload) {
+  if (!state.active) return;
+  try {
+    await api("/api/send", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ name: state.active, ...payload }),
+    });
+  } catch (e) { /* session may have died; next poll cleans up */ }
+}
+
+let ctrlBtn = null;
+function toggleCtrl() {
+  $("ctrlrow").classList.toggle("open");
+  ctrlBtn.classList.toggle("on");
+}
+
+// --- swipe-to-scroll over the terminal ---
+// The ttyd iframe is cross-origin and unscriptable, so scrolling routes
+// through the server (tmux copy-mode) just like the quick-keys do. The
+// overlay only intercepts touches while scroll mode is on.
+let scrollBtn = null;
+function toggleScroll() {
+  const ov = $("scroll-overlay");
+  const on = ov.classList.toggle("on");
+  scrollBtn.classList.toggle("on", on);
+  if (!on && state.active) scrollApi("exit"); // return to the live bottom
+}
+
+async function scrollApi(dir, lines) {
+  if (!state.active) return;
+  try {
+    await api("/api/scroll", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ name: state.active, dir, lines }),
+    });
+  } catch (e) { /* session may have died; next poll cleans up */ }
+}
+
+(function wireScrollOverlay() {
+  const ov = $("scroll-overlay");
+  const hint = $("scroll-hint");
+  const baseHint = hint.textContent;
+  let lastY = 0, accum = 0, pending = 0, flushTimer = null, total = 0, hintTimer = null;
+
+  const showHint = () => {
+    hint.textContent = total > 0 ? `▲ scrolled up ${total}` : (total < 0 ? `▼ scrolled down ${-total}` : baseHint);
+    clearTimeout(hintTimer);
+    hintTimer = setTimeout(() => { total = 0; hint.textContent = baseHint; }, 900);
+  };
+  const flush = () => {
+    flushTimer = null;
+    const n = pending; pending = 0;
+    if (n) scrollApi(n > 0 ? "up" : "down", Math.abs(n));
+  };
+  const queue = lines => {
+    pending += lines;
+    total += lines;
+    showHint();
+    if (!flushTimer) flushTimer = setTimeout(flush, 50);
+  };
+
+  const start = y => { lastY = y; accum = 0; };
+  const move = y => {
+    accum += y - lastY; lastY = y;
+    const lineH = Math.max(10, fontSize);            // ~1 line per finger-line
+    const lines = Math.trunc(accum / lineH);
+    if (lines) {
+      accum -= lines * lineH;
+      // drag down (positive) reveals older content above → scroll up
+      queue(lines);
+    }
+  };
+
+  let sawTouch = false, pdown = false;
+  ov.addEventListener("touchstart", ev => { sawTouch = true; ev.preventDefault(); start(ev.touches[0].clientY); }, {passive: false});
+  ov.addEventListener("touchmove", ev => { ev.preventDefault(); move(ev.touches[0].clientY); }, {passive: false});
+  // Pointer events as a fallback for browsers that don't deliver touch events
+  // over the iframe. Skipped once real touch events have been seen, so a
+  // device firing both doesn't double-count.
+  ov.addEventListener("pointerdown", ev => { if (sawTouch) return; pdown = true; start(ev.clientY); });
+  ov.addEventListener("pointermove", ev => { if (!sawTouch && pdown) move(ev.clientY); });
+  ov.addEventListener("pointerup", () => { pdown = false; });
+  ov.addEventListener("pointercancel", () => { pdown = false; });
+})();
+
+function keyButton(label, payload, repeat) {
+  const b = document.createElement("button");
+  b.className = "key";
+  b.textContent = label;
+  b.tabIndex = -1;
+  let iv = null, to = null;
+  const act = () => {
+    if (payload && payload.scroll) return scrollApi(payload.scroll, payload.lines || 8);
+    sendKey(payload);
+  };
+  const down = ev => {
+    ev.preventDefault(); // keep focus (and the soft keyboard) in the terminal
+    if (payload === "ctrl") return toggleCtrl();
+    if (payload === "scroll") return toggleScroll();
+    if (payload === "font-") return setFont(-1);
+    if (payload === "font+") return setFont(1);
+    act();
+    if (repeat) to = setTimeout(() => { iv = setInterval(act, 120); }, 400);
+  };
+  const up = () => { clearTimeout(to); clearInterval(iv); to = iv = null; };
+  b.addEventListener("touchstart", down, {passive: false});
+  b.addEventListener("touchend", up);
+  b.addEventListener("touchcancel", up);
+  b.addEventListener("mousedown", ev => { if (ev.button === 0) down(ev); });
+  b.addEventListener("mouseup", up);
+  b.addEventListener("mouseleave", up);
+  return b;
+}
+
+(function buildKeybar() {
+  const bar = $("keybar");
+  for (const [label, payload, repeat] of KEYS) {
+    const b = keyButton(label, payload, repeat);
+    if (payload === "ctrl") ctrlBtn = b;
+    if (payload === "scroll") scrollBtn = b;
+    bar.appendChild(b);
+  }
+  const row = $("ctrlrow");
+  for (const c of CTRL_KEYS) {
+    const b = document.createElement("button");
+    b.className = "key";
+    b.textContent = "^" + c.toUpperCase();
+    b.tabIndex = -1;
+    const h = ev => { ev.preventDefault(); sendKey({key: "C-" + c}); toggleCtrl(); };
+    b.addEventListener("touchstart", h, {passive: false});
+    b.addEventListener("mousedown", ev => { if (ev.button === 0) h(ev); });
+    row.appendChild(b);
+  }
+})();
+
+// --- edge swipe between terminals ---
+for (const id of ["swipe-l", "swipe-r"]) {
+  const z = $(id);
+  let sx = 0, sy = 0;
+  z.addEventListener("touchstart", ev => {
+    sx = ev.touches[0].clientX; sy = ev.touches[0].clientY;
+  }, {passive: true});
+  z.addEventListener("touchend", ev => {
+    const t = ev.changedTouches[0];
+    const dx = t.clientX - sx, dy = t.clientY - sy;
+    if (Math.abs(dx) < 40 || Math.abs(dy) > 60) return;
+    const names = state.sessions.map(s => s.name);
+    const i = names.indexOf(state.active);
+    if (i === -1) return;
+    const j = dx < 0 ? Math.min(i + 1, names.length - 1) : Math.max(i - 1, 0);
+    if (j !== i) setActive(names[j]);
+  });
+}
+
+// keep the keybar visible above the soft keyboard
+if (window.visualViewport) {
+  const fit = () => {
+    $("app").style.height = window.visualViewport.height + "px";
+    window.scrollTo(0, 0);
+  };
+  window.visualViewport.addEventListener("resize", fit);
+}
+
+if ("serviceWorker" in navigator && window.isSecureContext) {
+  navigator.serviceWorker.register("/sw.js").catch(() => {});
+}
+
+load();
+setInterval(() => { if (!document.hidden) load(); }, 8000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
+</script>
+</body>
+</html>
